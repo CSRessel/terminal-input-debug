@@ -4,10 +4,9 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent};
 use eyre::WrapErr;
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Padding, Paragraph, Wrap},
     Terminal,
 };
 use std::io::{self, Write};
@@ -60,10 +59,9 @@ fn main() -> Result<()> {
 
 fn run(args: Args) -> Result<()> {
     // Simple ModelInit for inline mode
-    let init = ModelInit::new(true);
-    let height = 20;
+    let height = 11;
 
-    let mut terminal = init_terminal(&init, height)?;
+    let mut terminal = init_terminal(true, height)?;
 
     let mut events = Vec::new();
     let mut input_count = 0;
@@ -95,64 +93,63 @@ fn run(args: Args) -> Result<()> {
         // Render
         terminal.draw(|f| {
             let size = f.area();
-            let block = Block::default()
-                .title("Debug Keys")
-                .borders(Borders::ALL)
-                .style(Style::default().fg(Color::Cyan));
 
-            let inner_area = block.inner(size);
-            f.render_widget(block, size);
-
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(2), Constraint::Min(1)])
-                .split(inner_area);
-
-            let status = format!(
+            let status_text = format!(
                 "Inputs: {}/{} | Time: {:.1}s / {}s",
                 input_count,
                 args.max_inputs,
                 start_time.elapsed().as_secs_f32(),
                 args.timeout
             );
-            let status_para = Paragraph::new(status)
-                .style(Style::default().fg(Color::Yellow))
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true });
-            f.render_widget(status_para, chunks[0]);
+            let title_line = Line::from(vec![
+                Span::from("Events ").style(Style::default().fg(Color::Yellow)),
+                Span::from("("),
+                Span::from(status_text).style(Style::default().fg(Color::Cyan)),
+                Span::from(")"),
+            ]);
+
+            let block = Block::default()
+                .title(title_line)
+                .borders(Borders::NONE)
+                .padding(Padding::uniform(0));
+
+            let inner_area = block.inner(size);
+            f.render_widget(block, size);
 
             let events_text: Vec<Line> = events
                 .iter()
                 .rev()
                 .take(50)
-                .map(|info| {
-                    Line::from(vec![
-                        Span::styled("Key: ", Style::default().fg(Color::Green)),
-                        Span::styled(
-                            &info.key,
-                            Style::default()
-                                .fg(Color::White)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(" | Code: ", Style::default().fg(Color::Blue)),
-                        Span::styled(&info.code, Style::default().fg(Color::White)),
-                        Span::styled(" | Mods: ", Style::default().fg(Color::Magenta)),
-                        Span::styled(&info.modifiers, Style::default().fg(Color::White)),
-                        Span::styled(" | Kind: ", Style::default().fg(Color::Red)),
-                        Span::styled(&info.kind, Style::default().fg(Color::White)),
-                    ])
-                })
+                .map(|info| format_event_info(info))
                 .collect();
 
             let events_para = Paragraph::new(events_text).wrap(Wrap { trim: true });
-            f.render_widget(events_para, chunks[1]);
+            f.render_widget(events_para, inner_area);
         })?;
     }
 
     // Restore terminal
-    restore_terminal(&init, height)?;
+    restore_terminal(true, height)?;
 
     Ok(())
+}
+
+fn format_event_info(info: &KeyEventInfo) -> Line {
+    Line::from(vec![
+        Span::styled("Key: ", Style::default().fg(Color::Green)),
+        Span::styled(
+            &info.key,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" | Code: ", Style::default().fg(Color::Blue)),
+        Span::styled(&info.code, Style::default().fg(Color::White)),
+        Span::styled(" | Mods: ", Style::default().fg(Color::Magenta)),
+        Span::styled(&info.modifiers, Style::default().fg(Color::White)),
+        Span::styled(" | Kind: ", Style::default().fg(Color::Red)),
+        Span::styled(&info.kind, Style::default().fg(Color::White)),
+    ])
 }
 
 fn format_key_event(event: KeyEvent) -> KeyEventInfo {
@@ -204,24 +201,6 @@ fn format_key_event(event: KeyEvent) -> KeyEventInfo {
     }
 }
 
-// Simple ModelInit
-#[derive(Debug, Clone)]
-struct ModelInit {
-    init_inline_mode: bool,
-}
-
-impl ModelInit {
-    fn new(inline_mode: bool) -> Self {
-        Self {
-            init_inline_mode: inline_mode,
-        }
-    }
-
-    fn inline_mode(&self) -> bool {
-        self.init_inline_mode
-    }
-}
-
 // Copied from terminal.rs
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -230,18 +209,15 @@ use crossterm::{
 };
 use ratatui::{TerminalOptions, Viewport};
 
-fn init_terminal(init: &ModelInit, height: u16) -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
-    tracing::info!(
-        "Initializing terminal - inline_mode: {}",
-        init.inline_mode()
-    );
+fn init_terminal(inline: bool, height: u16) -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    tracing::info!("Initializing terminal");
 
     enable_raw_mode().wrap_err("Failed to enable raw mode")?;
 
     let mut stdout = io::stdout();
     execute!(stdout, EnableMouseCapture).wrap_err("Failed to enable mouse capture")?;
 
-    if !init.inline_mode() {
+    if !inline {
         tracing::debug!("Entering alternate screen mode");
         execute!(stdout, EnterAlternateScreen).wrap_err("Failed to enter alternate screen")?;
     } else {
@@ -249,16 +225,15 @@ fn init_terminal(init: &ModelInit, height: u16) -> Result<Terminal<CrosstermBack
     }
 
     // Set up panic hook
-    let init_clone = init.clone();
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        let _ = restore_terminal(&init_clone, height);
+        let _ = restore_terminal(inline, height);
         hook(panic_info);
     }));
 
     let backend = CrosstermBackend::new(stdout);
 
-    let viewport = if init.inline_mode() {
+    let viewport = if inline {
         Viewport::Inline(height)
     } else {
         Viewport::Fullscreen
@@ -274,8 +249,8 @@ fn init_terminal(init: &ModelInit, height: u16) -> Result<Terminal<CrosstermBack
     Ok(terminal)
 }
 
-fn restore_terminal(init: &ModelInit, height: u16) -> io::Result<()> {
-    tracing::info!("Restoring terminal - inline_mode: {}", init.inline_mode());
+fn restore_terminal(inline: bool, height: u16) -> io::Result<()> {
+    tracing::info!("Restoring terminal");
 
     if let Err(e) = disable_raw_mode() {
         tracing::error!("Failed to disable raw mode during restore: {}", e);
@@ -287,7 +262,7 @@ fn restore_terminal(init: &ModelInit, height: u16) -> io::Result<()> {
         tracing::error!("Failed to disable mouse capture during restore: {}", e);
     }
 
-    if !init.inline_mode() {
+    if !inline {
         execute!(stdout, crossterm::terminal::LeaveAlternateScreen)?;
     } else {
         if let Ok((_cols, rows)) = crossterm::terminal::size() {
