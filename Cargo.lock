@@ -864,6 +864,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "eyre",
+ "libc",
  "owo-colors",
  "ratatui",
  "tracing",

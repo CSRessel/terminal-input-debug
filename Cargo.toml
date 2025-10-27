@@ -20,3 +20,4 @@ tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry"] }
 clap = { version = "4.5.49", features = [ "derive" ] }
+libc = "0.2"
