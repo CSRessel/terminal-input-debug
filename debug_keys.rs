@@ -146,6 +146,39 @@ fn run(args: Args) -> Result<()> {
     }
 
     restore_terminal(true, height)?;
+
+    terminal.insert_before(height, |f| {
+        use ratatui::widgets::Widget;
+
+        let size = f.area();
+        let status_text = format!(
+            "Final Inputs: {}/{} | Time: {:.1}s / {}s",
+            input_count,
+            args.max_inputs,
+            start_time.elapsed().as_secs_f32(),
+            args.timeout
+        );
+        let title_line = Line::from(vec![
+            Span::from("Final Events ").style(Style::default().fg(Color::Yellow)),
+            Span::from("("),
+            Span::from(status_text).style(Style::default().fg(Color::Cyan)),
+            Span::from(")"),
+        ]);
+
+        let block = Block::default()
+            .title(title_line)
+            .borders(Borders::NONE)
+            .padding(Padding::uniform(0));
+
+        let inner_area = block.inner(size.clone());
+        block.render(size.clone(), f);
+
+        let events_text: Vec<Line> = events.iter().map(|info| format_event_info(info)).collect();
+
+        let events_para = Paragraph::new(events_text).wrap(Wrap { trim: true });
+        events_para.render(inner_area, f);
+    })?;
+
     Ok(())
 }
 
