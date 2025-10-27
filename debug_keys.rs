@@ -8,9 +8,10 @@ use eyre::WrapErr;
 use libc;
 use ratatui::{
     backend::CrosstermBackend,
+    layout::Constraint,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Padding, Paragraph, Wrap},
+    widgets::{Block, Borders, Cell, Padding, Row, Table},
     Terminal,
 };
 #[cfg(unix)]
@@ -133,15 +134,43 @@ fn run(args: Args) -> Result<()> {
             let inner_area = block.inner(size);
             f.render_widget(block, size);
 
-            let events_text: Vec<Line> = events
+            let header = Row::new(vec![
+                Cell::from("Hex"),
+                Cell::from("Esc"),
+                Cell::from("Key"),
+                Cell::from("Code"),
+                Cell::from("Mods"),
+                Cell::from("Kind"),
+                Cell::from("Info"),
+            ])
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
+
+            let widths = [
+                Constraint::Length(18),
+                Constraint::Length(20),
+                Constraint::Length(12),
+                Constraint::Length(14),
+                Constraint::Length(12),
+                Constraint::Length(12),
+                Constraint::Min(10),
+            ];
+
+            let events_rows: Vec<Row> = events
                 .iter()
                 .rev()
                 .take(50)
                 .map(|info| format_event_info(info))
                 .collect();
 
-            let events_para = Paragraph::new(events_text).wrap(Wrap { trim: true });
-            f.render_widget(events_para, inner_area);
+            let events_table = Table::new(events_rows, widths)
+                .header(header)
+                .column_spacing(1);
+
+            f.render_widget(events_table, inner_area);
         })?;
     }
 
@@ -173,10 +202,38 @@ fn run(args: Args) -> Result<()> {
         let inner_area = block.inner(size.clone());
         block.render(size.clone(), f);
 
-        let events_text: Vec<Line> = events.iter().map(|info| format_event_info(info)).collect();
+        let header = Row::new(vec![
+            Cell::from("Hex"),
+            Cell::from("Esc"),
+            Cell::from("Key"),
+            Cell::from("Code"),
+            Cell::from("Mods"),
+            Cell::from("Kind"),
+            Cell::from("Info"),
+        ])
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
-        let events_para = Paragraph::new(events_text).wrap(Wrap { trim: true });
-        events_para.render(inner_area, f);
+        let widths = [
+            Constraint::Length(18),
+            Constraint::Length(20),
+            Constraint::Length(12),
+            Constraint::Length(14),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Min(10),
+        ];
+
+        let events_rows: Vec<Row> = events.iter().map(|info| format_event_info(info)).collect();
+
+        let events_table = Table::new(events_rows, widths)
+            .header(header)
+            .column_spacing(1);
+
+        events_table.render(inner_area, f);
     })?;
 
     Ok(())
@@ -199,44 +256,30 @@ fn process_event_bytes(bytes: Vec<u8>, events: &mut Vec<InputEventInfo>, count: 
     *count += 1;
 }
 
-fn format_event_info(info: &InputEventInfo) -> Line {
-    let mut spans = vec![
-        Span::styled("Hex: ", Style::default().fg(Color::Yellow)),
-        Span::styled(
-            &info.hex_string,
+fn format_event_info(info: &InputEventInfo) -> Row<'static> {
+    let description = if info.guess.description.is_empty() {
+        String::new()
+    } else {
+        info.guess.description.clone()
+    };
+
+    Row::new(vec![
+        Cell::from(info.hex_string.clone()).style(
             Style::default()
-                .fg(Color::White)
+                .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" | Esc: ", Style::default().fg(Color::Cyan)),
-        Span::styled(&info.escaped_string, Style::default().fg(Color::White)),
-        Span::styled(" | Key: ", Style::default().fg(Color::Green)),
-        Span::styled(
-            &info.guess.key,
+        Cell::from(info.escaped_string.clone()).style(Style::default().fg(Color::Cyan)),
+        Cell::from(info.guess.key.clone()).style(
             Style::default()
-                .fg(Color::White)
+                .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" | Code: ", Style::default().fg(Color::Blue)),
-        Span::styled(&info.guess.code, Style::default().fg(Color::White)),
-        Span::styled(" | Mods: ", Style::default().fg(Color::Magenta)),
-        Span::styled(&info.guess.modifiers, Style::default().fg(Color::White)),
-        Span::styled(" | Kind: ", Style::default().fg(Color::Red)),
-        Span::styled(&info.guess.kind, Style::default().fg(Color::White)),
-    ];
-
-    if !info.guess.description.is_empty() {
-        spans.push(Span::styled(
-            " | Info: ",
-            Style::default().fg(Color::Yellow),
-        ));
-        spans.push(Span::styled(
-            &info.guess.description,
-            Style::default().fg(Color::White),
-        ));
-    }
-
-    Line::from(spans)
+        Cell::from(info.guess.code.clone()).style(Style::default().fg(Color::Blue)),
+        Cell::from(info.guess.modifiers.clone()).style(Style::default().fg(Color::Magenta)),
+        Cell::from(info.guess.kind.clone()).style(Style::default().fg(Color::Red)),
+        Cell::from(description).style(Style::default().fg(Color::White)),
+    ])
 }
 
 impl InputEventInfo {
