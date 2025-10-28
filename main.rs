@@ -79,7 +79,7 @@ fn run(args: Args) -> Result<()> {
     const DRAW_TIMEOUT: Duration = Duration::from_millis(100);
     const FLUSH_TIMEOUT: Duration = Duration::from_millis(35);
 
-    let height = 11;
+    let height = 12;
     let mut terminal = init_terminal(true, height)?;
 
     let mut events: Vec<InputEventInfo> = Vec::new();
