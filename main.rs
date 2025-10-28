@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
 use tracing_appender::rolling;
-use tracing_subscriber::{self, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{self, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -1040,6 +1040,8 @@ fn init_logger() -> Result<LoggerGuard> {
     let log_file = rolling::daily(&log_dir, "debug-keys.log");
     let (non_blocking_log_file, guard) = tracing_appender::non_blocking(log_file);
 
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking_log_file)
         .with_ansi(false)
@@ -1047,14 +1049,21 @@ fn init_logger() -> Result<LoggerGuard> {
         .with_thread_names(true)
         .with_file(true)
         .with_line_number(true)
-        .with_target(true)
-        .with_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("debug_keys=debug")),
-        );
+        .with_target(true);
+
+    let stderr_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_ansi(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true);
 
     tracing_subscriber::registry()
+        .with(filter)
         .with(file_layer)
+        .with(stderr_layer)
         .try_init()
         .wrap_err("Failed to initialize tracing subscriber")?;
 
@@ -1063,11 +1072,11 @@ fn init_logger() -> Result<LoggerGuard> {
 }
 
 fn get_log_directory() -> PathBuf {
-    if let Ok(dir) = std::env::var("OPENCODE_LOG_DIR") {
+    if let Ok(dir) = std::env::var("TERMEVENTS_LOG_DIR") {
         PathBuf::from(dir)
     } else if let Some(home) = dirs::home_dir() {
-        home.join(".opencode").join("logs")
+        home.join(".termevents").join("logs")
     } else {
-        PathBuf::from("/tmp/opencode")
+        PathBuf::from("/tmp/termevents")
     }
 }
