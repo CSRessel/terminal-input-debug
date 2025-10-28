@@ -2,11 +2,11 @@
 name = "terminal-events"
 version = "0.1.0"
 edition = "2021"
-default-run = "debug_keys"
+default-run = "main"
 
 [[bin]]
-name = "debug_keys"
-path = "debug_keys.rs"
+name = "main"
+path = "main.rs"
 
 [dependencies]
 # TUI
