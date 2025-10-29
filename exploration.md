@@ -1,3 +1,5 @@
+<!-- based on https://github.com/sst/opencode/issues/1505#issuecomment-3411334883 -->
+
 Just to try and demystify this a little bit, all within one place. This is my best understanding, and I appreciate corrections or nitpicking.
 
 Historically, an input for "shift+enter" didn't exist. The program can only see whatever the terminal application sends to it, and this "shift+enter" input combo is historically just sent as the single key for "enter" (much like "shift+a" was sent as "A" and "shift+tab" was sent as "btab").^1
@@ -9,20 +11,23 @@ More recently, kitty created extended keys.^3 This newer spec ensures that more 
 
 So with that context, here is each application's support for each input at the time of writing:
 
-| Input     | CSI u | `modifyOtherKeys` | newline |
-| -         | -     | -                 | -       |
-| OpenCode  | ✅    | ✅                | ❌      |
-| Claude    | ❌    | ❌                | ✅      |
-| Codex     | ✅    | ❌                | ✅      |
+| Input     | CSI u | `modifyOtherKeys` | LF | escaped CR |
+| -         | -     | -                 | -       | - |
+| OpenCode  | ✅    | ✅                | ✅    | ❌      |
+| Claude    | ❌    | ❌                | ✅      | ✅    | 
+| Codex     | ✅    | ❌                | ✅      `|✅`      |
+
+_EDIT: added difference between handling of LF vs escaped CR_
 
 - CSI u uses the sequence `^[[13;2u`
 - `modifyOtherKeys` uses the sequence `^[[27;2;13~`
-- newline is sending the explicit character of `\r` or `\n` or `\x1b\r` or similar
+- LF is a linefeed, i.e. sending the explicit character of `\n`
+- escaped CR is an escape then carriage return, i.e. explicitly sending `\x1b\r`
 
 So hopefully this explains why:
 1. Claude changes the config (they aren't properly handling the other escape sequence options)
-2. Claude's terminal config change breaks OpenCode (which isn't handling the newline character)
-3. No one has a config which works for both
+2. Claude's terminal config change breaks OpenCode (which isn't handling the escaped CR)
+3. ~~No one has a config which works for both~~ (_EDIT: linefeed should work for both!_)
 
 And then for those who have issues within tmux, you can explicitly bind `S-Enter` to any one of these input sequences.
 
