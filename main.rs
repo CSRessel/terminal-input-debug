@@ -6,6 +6,10 @@ use eyre::eyre;
 use eyre::WrapErr;
 #[cfg(unix)]
 use libc;
+#[cfg(unix)]
+use nix::errno::Errno;
+#[cfg(unix)]
+use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
 use ratatui::{
     backend::CrosstermBackend,
     layout::Constraint,
@@ -18,7 +22,7 @@ use ratatui::{
 use std::collections::VecDeque;
 use std::io::{self, ErrorKind, Read, Write};
 #[cfg(unix)]
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
@@ -79,7 +83,7 @@ fn run(args: Args) -> Result<()> {
     const DRAW_TIMEOUT: Duration = Duration::from_millis(100);
     const FLUSH_TIMEOUT: Duration = Duration::from_millis(35);
 
-    let height = 12;
+    let height = args.max_inputs as u16 + 2; // +2 for header and for event info
     let mut terminal = init_terminal(true, height)?;
 
     let mut events: Vec<InputEventInfo> = Vec::new();
@@ -851,17 +855,46 @@ impl RawInputReader {
         }
 
         let effective_timeout = self.effective_timeout(timeout);
-        let mut fds = [libc::pollfd {
-            fd: self.fd,
-            events: libc::POLLIN,
-            revents: 0,
-        }];
-
-        let poll_timeout = duration_to_poll_timeout(effective_timeout);
-        let res = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, poll_timeout) };
-        if res < 0 {
-            return Err(io::Error::last_os_error());
-        }
+        let mut fds = [PollFd::new(self.stdin.as_fd(), PollFlags::POLLIN)];
+        let poll_timeout_ms = duration_to_poll_timeout(effective_timeout);
+        let poll_timeout = PollTimeout::try_from(poll_timeout_ms).unwrap_or(PollTimeout::MAX);
+        let res = loop {
+            match poll(&mut fds, poll_timeout) {
+                Ok(res) => break res,
+                Err(Errno::EINTR) => {
+                    tracing::warn!(
+                        target: "raw_input_reader",
+                        fd = self.fd,
+                        timeout_ms = poll_timeout_ms,
+                        buffer_len = self.buffer.len(),
+                        last_byte_age_ms = self
+                            .last_byte_at
+                            .map(|instant| instant.elapsed().as_millis() as i64)
+                            .unwrap_or(-1),
+                        "poll interrupted, retrying"
+                    );
+                    continue;
+                }
+                Err(errno) => {
+                    let errno_value = errno as i32;
+                    let io_err: io::Error = errno.into();
+                    tracing::error!(
+                        target: "raw_input_reader",
+                        fd = self.fd,
+                        timeout_ms = poll_timeout_ms,
+                        buffer_len = self.buffer.len(),
+                        last_byte_age_ms = self
+                            .last_byte_at
+                            .map(|instant| instant.elapsed().as_millis() as i64)
+                            .unwrap_or(-1),
+                        errno = errno_value,
+                        kind = ?io_err.kind(),
+                        "poll failed"
+                    );
+                    return Err(io_err);
+                }
+            }
+        };
 
         if res == 0 {
             if !self.buffer.is_empty() && self.should_flush_pending() {
@@ -871,22 +904,24 @@ impl RawInputReader {
             return Ok(None);
         }
 
-        if fds[0].revents & libc::POLLIN != 0 {
-            let mut byte = [0u8; 1];
-            let mut stdin_lock = self.stdin.lock();
-            loop {
-                match stdin_lock.read(&mut byte) {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        self.push_byte(byte[0]);
-                        if let Some(event) = self.ready.pop_front() {
-                            drop(stdin_lock);
-                            return Ok(Some(event));
+        if let Some(revents) = fds[0].revents() {
+            if revents.contains(PollFlags::POLLIN) {
+                let mut byte = [0u8; 1];
+                let mut stdin_lock = self.stdin.lock();
+                loop {
+                    match stdin_lock.read(&mut byte) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            self.push_byte(byte[0]);
+                            if let Some(event) = self.ready.pop_front() {
+                                drop(stdin_lock);
+                                return Ok(Some(event));
+                            }
                         }
+                        Err(err) if err.kind() == ErrorKind::Interrupted => continue,
+                        Err(err) if err.kind() == ErrorKind::WouldBlock => break,
+                        Err(err) => return Err(err),
                     }
-                    Err(err) if err.kind() == ErrorKind::Interrupted => continue,
-                    Err(err) if err.kind() == ErrorKind::WouldBlock => break,
-                    Err(err) => return Err(err),
                 }
             }
         }
