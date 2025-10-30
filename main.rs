@@ -75,7 +75,10 @@ fn run(args: Args) -> Result<()> {
     const FLUSH_TIMEOUT: Duration = Duration::from_millis(35);
 
     let height = args.max_inputs as u16 + 2; // +2 for header and for event info
-    let mut tui_app = TuiApp::new(true, height, "controlsequencedebugger");
+    let mut tui_app = TuiApp::builder("controlsequencedebugger")
+        .inline(true)
+        .inline_height(height)
+        .build();
     let mut terminal = tui_app.init()?;
 
     let mut events: Vec<InputEventInfo> = Vec::new();
