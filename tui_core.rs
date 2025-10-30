@@ -90,6 +90,7 @@ fn init_terminal(inline: bool, height: u16) -> Result<Terminal<CrosstermBackend<
     // Set up panic hook
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
+        // We've already panicked so ignore any err
         let _ = restore_terminal(inline, height);
         hook(panic_info);
     }));
@@ -138,6 +139,7 @@ fn restore_terminal(inline: bool, height: u16) -> io::Result<()> {
         }
     }
 
+    terminal.show_cursor()?;
     stdout.flush()?;
 
     tracing::debug!("Terminal restore completed");
@@ -153,6 +155,34 @@ pub struct TuiApp {
 }
 
 impl TuiApp {
+    // TODO customization points:
+    //
+    // Terminal Lifecycle
+    //
+    // - tui_core.rs:81 always enables mouse capture; expose a toggle so library users can opt out
+    //   entirely.
+    // - tui_core.rs:80 and tui_core:98 always uses stdout; allow the user to choose stderr instead
+    //   if they want to preserve stdout for command output, e.g. for piping between command line
+    //   tools (like fzf does, for example).
+    // - tui_core.rs:109 hides the cursor until shutdown; add a show_cursor flag for workflows that
+    //   want the cursor visible.
+    // - tui_core.rs:128-137 hard-codes clearing the inline viewport on restore; provide options
+    //   for inline mode restore policies such as “leave inline buffer untouched”, “clear bottom N
+    //   lines”, or “always clear everything”
+    // - tui_core.rs:140-150 sets a panic hook that restores the terminal; allow callers to opt out
+    //  of this behavior if they want to manage panics themselves.
+    //
+    // Diagnostics & Logging
+    //
+    // - tui_core.rs:175-179 installs color_eyre and the tracer on every init; provide knobs to
+    //   disable color_eyre, defer tracing setup to the host app, or accept custom subscriber
+    //   builders.
+    // - tui_core.rs:32-57 always builds both file and stderr layers with a fixed EnvFilter; expose
+    //   configuration for log targets (file/stderr/none), ANSI usage, level filters, or to inject
+    //   a prebuilt registry.
+    // - tui_core.rs:63-72 derives the log directory from an env var or $HOME; let consumers
+    //   disable on-disk logs entirely if desired.
+
     /// Construct a new application harness with the desired viewport settings.
     pub fn new(inline: bool, height: u16, app_name: &str) -> Self {
         let app = Self {
