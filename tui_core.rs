@@ -170,7 +170,10 @@ impl TuiApp {
     //   for inline mode restore policies such as “leave inline buffer untouched”, “clear bottom N
     //   lines”, or “always clear everything”
     // - tui_core.rs:140-150 sets a panic hook that restores the terminal; allow callers to opt out
-    //  of this behavior if they want to manage panics themselves.
+    //   of this behavior if they want to manage panics themselves.
+    // - The user should be able to specify welcome, goodbye, and error banners that are printed
+    //   in those respective situations, either entirely before or entirely after all the remaining
+    //   terminal lifecycle management.
     //
     // Diagnostics & Logging
     //
