@@ -165,7 +165,6 @@ pub struct TuiAppBuilder {
     use_backend_stdout: bool,
     use_panic_terminal_restore: bool,
     use_color_eyre: bool,
-    use_tracing: bool,
     use_disk_logs: bool,
     capture_mouse: bool,
     hide_cursor: bool,
@@ -180,7 +179,6 @@ impl Default for TuiAppBuilder {
             use_backend_stdout: true,
             use_panic_terminal_restore: true,
             use_color_eyre: true,
-            use_tracing: true,
             use_disk_logs: true,
             capture_mouse: true,
             hide_cursor: true,
@@ -238,11 +236,6 @@ impl TuiAppBuilder {
         self
     }
 
-    pub fn use_tracing(mut self, use_tracing: bool) -> Self {
-        self.use_tracing = use_tracing;
-        self
-    }
-
     pub fn use_disk_logs(mut self, use_disk_logs: bool) -> Self {
         self.use_disk_logs = use_disk_logs;
         self
@@ -261,7 +254,6 @@ impl TuiAppBuilder {
             use_backend_stdout: self.use_backend_stdout,
             use_panic_terminal_restore: self.use_panic_terminal_restore,
             use_color_eyre: self.use_color_eyre,
-            use_tracing: self.use_tracing,
             use_disk_logs: self.use_disk_logs,
             capture_mouse: self.capture_mouse,
             hide_cursor: self.hide_cursor,
@@ -277,7 +269,6 @@ pub struct TuiApp {
     use_backend_stdout: bool, // TODO
     use_panic_terminal_restore: bool,
     use_color_eyre: bool,
-    use_tracing: bool, // TODO
     use_disk_logs: bool,
     capture_mouse: bool,
     hide_cursor: bool,
@@ -299,25 +290,6 @@ impl TuiApp {
     // - The user should be able to specify welcome, goodbye, and error banners that are printed
     //   in those respective situations, either entirely before or entirely after all the remaining
     //   terminal lifecycle management.
-    //
-    // Diagnostics & Logging
-    //
-    // - tui_core.rs:175-179 installs color_eyre and the tracer on every init; provide knobs to
-    //   disable color_eyre, defer tracing setup to the host app, or accept custom subscriber
-    //   builders.
-    // - tui_core.rs:32-57 always builds both file and stderr layers with a fixed EnvFilter; expose
-    //   configuration for log targets (file/stderr/none), ANSI usage, level filters, or to inject
-    //   a prebuilt registry. E.g. user should be able to:
-    //   ```rust
-    //       let stderr_layer = tracing_subscriber::fmt::layer()
-    //           .with_writer(std::io::stderr)
-    //           .with_ansi(true)
-    //           .with_thread_ids(true)
-    //           .with_thread_names(true)
-    //           .with_file(true)
-    //           .with_line_number(true)
-    //           .with_target(true);
-    //   ```
     pub fn builder(app_name: impl Into<String>) -> TuiAppBuilder {
         TuiAppBuilder::new(app_name)
     }
@@ -338,7 +310,7 @@ impl TuiApp {
             color_eyre::install().expect("Failed to install color-eyre");
         }
 
-        if self.use_tracing && self.use_disk_logs {
+        if self.use_disk_logs {
             self.logger_guard =
                 Some(init_file_logger(self.app_name()).expect("Failed to initialize file logger"));
         } else {
