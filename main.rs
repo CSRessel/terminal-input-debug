@@ -24,7 +24,7 @@ use std::io::{self, ErrorKind, Read};
 use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
 use std::time::Instant;
-use tui_core::{AlternateScreenBackend, TuiApp};
+use tui_core::TuiApp;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -48,10 +48,10 @@ struct InputEventInfo {
 #[derive(Debug, Clone)]
 struct GuessInfo {
     key: String,
-    code: String,
     modifiers: String,
-    kind: String,
     description: String,
+    _code: String,
+    _kind: String,
 }
 
 fn main() -> eyre::Result<()> {
@@ -76,7 +76,7 @@ fn run(args: Args) -> Result<()> {
 
     let height = args.max_inputs as u16 + 2; // +2 for header and for event info
     let mut tui_app = TuiApp::builder("controlsequencedebugger")
-        .alternate_screen_backend(AlternateScreenBackend::Stderr)
+        .inline(height)
         .build();
     let mut terminal = tui_app.init()?;
 
@@ -136,9 +136,7 @@ fn run(args: Args) -> Result<()> {
                 Cell::from("Hex"),
                 Cell::from("Esc"),
                 Cell::from("Key"),
-                Cell::from("Code"),
                 Cell::from("Mods"),
-                Cell::from("Kind"),
                 Cell::from("Info"),
             ])
             .style(
@@ -159,8 +157,7 @@ fn run(args: Args) -> Result<()> {
 
             let events_rows: Vec<Row> = events
                 .iter()
-                .rev()
-                .take(50)
+                .take(height as usize - 2)
                 .map(|info| format_event_info(info))
                 .collect();
 
@@ -204,9 +201,7 @@ fn run(args: Args) -> Result<()> {
             Cell::from("Hex"),
             Cell::from("Esc"),
             Cell::from("Key"),
-            Cell::from("Code"),
             Cell::from("Mods"),
-            Cell::from("Kind"),
             Cell::from("Info"),
         ])
         .style(
@@ -218,9 +213,7 @@ fn run(args: Args) -> Result<()> {
         let widths = [
             Constraint::Length(18),
             Constraint::Length(20),
-            Constraint::Length(12),
             Constraint::Length(14),
-            Constraint::Length(12),
             Constraint::Length(12),
             Constraint::Min(10),
         ];
@@ -273,9 +266,7 @@ fn format_event_info(info: &InputEventInfo) -> Row<'static> {
                 .fg(Color::Green)
                 .add_modifier(Modifier::BOLD),
         ),
-        Cell::from(info.guess.code.clone()).style(Style::default().fg(Color::Blue)),
         Cell::from(info.guess.modifiers.clone()).style(Style::default().fg(Color::Magenta)),
-        Cell::from(info.guess.kind.clone()).style(Style::default().fg(Color::Red)),
         Cell::from(description).style(Style::default().fg(Color::White)),
     ])
 }
@@ -302,17 +293,17 @@ impl GuessInfo {
         match interpret_bytes(bytes) {
             Some(interp) => GuessInfo {
                 key: interp.key_display,
-                code: format!("{:?}", interp.code),
                 modifiers: format_modifiers(interp.modifiers),
-                kind: "Press".to_string(),
                 description: interp.description,
+                _code: format!("{:?}", interp.code),
+                _kind: "Press".to_string(),
             },
             None => GuessInfo {
                 key: "Unknown".to_string(),
-                code: "Unknown".to_string(),
                 modifiers: "None".to_string(),
-                kind: "Unknown".to_string(),
                 description: String::new(),
+                _code: "Unknown".to_string(),
+                _kind: "Unknown".to_string(),
             },
         }
     }
