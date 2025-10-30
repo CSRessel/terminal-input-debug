@@ -21,12 +21,12 @@ struct LoggerGuard {
 }
 
 /// Initialize logger
-fn init_logger() -> Result<LoggerGuard> {
-    let log_dir = get_log_directory();
+fn init_logger(app_name: &str) -> Result<LoggerGuard> {
+    let log_dir = get_log_directory(app_name);
 
     std::fs::create_dir_all(&log_dir).wrap_err("Failed to create log directory")?;
 
-    let log_file = rolling::daily(&log_dir, "debug-keys.log");
+    let log_file = rolling::daily(&log_dir, "logs");
     let (non_blocking_log_file, guard) = tracing_appender::non_blocking(log_file);
 
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -60,13 +60,15 @@ fn init_logger() -> Result<LoggerGuard> {
     Ok(LoggerGuard { _guard: guard })
 }
 
-fn get_log_directory() -> PathBuf {
-    if let Ok(dir) = std::env::var("TERMEVENTS_LOG_DIR") {
+fn get_log_directory(app_name: &str) -> PathBuf {
+    let env_var = format!("{}_LOG_DIR", app_name.to_ascii_uppercase());
+
+    if let Ok(dir) = std::env::var(&env_var) {
         PathBuf::from(dir)
     } else if let Some(home) = dirs::home_dir() {
-        home.join(".termevents").join("logs")
+        home.join(format!(".{}", app_name)).join("logs")
     } else {
-        PathBuf::from("/tmp/termevents")
+        PathBuf::from("/tmp").join(app_name)
     }
 }
 
@@ -145,18 +147,26 @@ fn restore_terminal(inline: bool, height: u16) -> io::Result<()> {
 /// Coordinates color-eyre, logging, and terminal lifecycle for the TUI.
 pub struct TuiApp {
     logger_guard: Option<LoggerGuard>,
+    app_name: String,
     inline: bool,
     height: u16,
 }
 
 impl TuiApp {
     /// Construct a new application harness with the desired viewport settings.
-    pub fn new(inline: bool, height: u16) -> Self {
-        Self {
+    pub fn new(inline: bool, height: u16, app_name: &str) -> Self {
+        let app = Self {
             logger_guard: None,
+            app_name: app_name.to_string(),
             inline,
             height,
-        }
+        };
+        app
+    }
+
+    /// Access the application name currently configured for the TUI.
+    pub fn app_name(&self) -> &str {
+        &self.app_name
     }
 
     /// Install diagnostics, start logging, and return a ready-to-draw terminal.
@@ -165,7 +175,8 @@ impl TuiApp {
         color_eyre::install().expect("Failed to install color-eyre");
 
         // Initialize logger
-        self.logger_guard = Some(init_logger().expect("Failed to initialize logger"));
+        self.logger_guard =
+            Some(init_logger(self.app_name()).expect("Failed to initialize logger"));
 
         init_terminal(self.inline, self.height)
     }
@@ -175,4 +186,3 @@ impl TuiApp {
         restore_terminal(self.inline, self.height)
     }
 }
-

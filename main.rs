@@ -75,7 +75,7 @@ fn run(args: Args) -> Result<()> {
     const FLUSH_TIMEOUT: Duration = Duration::from_millis(35);
 
     let height = args.max_inputs as u16 + 2; // +2 for header and for event info
-    let mut tui_app = TuiApp::new(true, height);
+    let mut tui_app = TuiApp::new(true, height, "controlsequencedebugger");
     let mut terminal = tui_app.init()?;
 
     let mut events: Vec<InputEventInfo> = Vec::new();
@@ -972,7 +972,3 @@ fn duration_to_poll_timeout(duration: Duration) -> libc::c_int {
     let millis = duration.as_millis().min(i32::MAX as u128);
     millis as libc::c_int
 }
-
-
-
-
