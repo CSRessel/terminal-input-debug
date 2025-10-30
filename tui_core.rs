@@ -17,6 +17,38 @@ use std::path::PathBuf;
 use tracing_appender::rolling;
 use tracing_subscriber::{self, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+/// Selectable writer that can target stdout or stderr interchangeably.
+pub enum TerminalWriter {
+    Stdout(io::Stdout),
+    Stderr(io::Stderr),
+}
+
+impl TerminalWriter {
+    fn stdout() -> Self {
+        Self::Stdout(io::stdout())
+    }
+
+    fn stderr() -> Self {
+        Self::Stderr(io::stderr())
+    }
+}
+
+impl Write for TerminalWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Stdout(writer) => writer.write(buf),
+            Self::Stderr(writer) => writer.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Stdout(writer) => writer.flush(),
+            Self::Stderr(writer) => writer.flush(),
+        }
+    }
+}
+
 /// Logger guard
 struct LoggerGuard {
     _guard: tracing_appender::non_blocking::WorkerGuard,
@@ -65,24 +97,30 @@ fn get_log_directory(app_name: &str) -> PathBuf {
 }
 
 fn init_terminal(
+    use_backend_stdout: bool,
     use_panic_terminal_restore: bool,
     capture_mouse: bool,
     hide_cursor: bool,
     inline: bool,
     inline_height: u16,
-) -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
+) -> Result<Terminal<CrosstermBackend<TerminalWriter>>> {
     tracing::debug!("Initializing terminal");
 
     enable_raw_mode().wrap_err("Failed to enable raw mode")?;
 
-    let mut stdout = io::stdout();
+    let mut terminal_output = if use_backend_stdout {
+        TerminalWriter::stdout()
+    } else {
+        TerminalWriter::stderr()
+    };
     if capture_mouse {
-        execute!(stdout, EnableMouseCapture).wrap_err("Failed to enable mouse capture")?;
+        execute!(terminal_output, EnableMouseCapture).wrap_err("Failed to enable mouse capture")?;
     }
 
     if !inline {
         tracing::debug!("Entering alternate screen mode");
-        execute!(stdout, EnterAlternateScreen).wrap_err("Failed to enter alternate screen")?;
+        execute!(terminal_output, EnterAlternateScreen)
+            .wrap_err("Failed to enter alternate screen")?;
     } else {
         tracing::debug!("Using inline mode with height: {}", inline_height);
     }
@@ -97,7 +135,7 @@ fn init_terminal(
         }));
     }
 
-    let backend = CrosstermBackend::new(stdout);
+    let backend = CrosstermBackend::new(terminal_output);
 
     let viewport = if inline {
         Viewport::Inline(inline_height)
@@ -305,7 +343,7 @@ impl TuiApp {
     }
 
     /// Install diagnostics, start logging, and return a ready-to-draw terminal.
-    pub fn init(&mut self) -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    pub fn init(&mut self) -> Result<Terminal<CrosstermBackend<TerminalWriter>>> {
         if self.use_color_eyre {
             color_eyre::install().expect("Failed to install color-eyre");
         }
@@ -318,6 +356,7 @@ impl TuiApp {
         }
 
         init_terminal(
+            self.use_backend_stdout,
             self.use_panic_terminal_restore,
             self.capture_mouse,
             self.hide_cursor,

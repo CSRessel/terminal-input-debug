@@ -76,8 +76,9 @@ fn run(args: Args) -> Result<()> {
 
     let height = args.max_inputs as u16 + 2; // +2 for header and for event info
     let mut tui_app = TuiApp::builder("controlsequencedebugger")
-        .inline(true)
+        .inline(false)
         .inline_height(height)
+        .use_backend_stdout(false)
         .build();
     let mut terminal = tui_app.init()?;
 
