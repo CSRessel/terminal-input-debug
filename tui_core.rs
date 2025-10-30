@@ -65,6 +65,7 @@ fn get_log_directory(app_name: &str) -> PathBuf {
 }
 
 fn init_terminal(
+    use_panic_terminal_restore: bool,
     capture_mouse: bool,
     hide_cursor: bool,
     inline: bool,
@@ -87,12 +88,14 @@ fn init_terminal(
     }
 
     // Set up panic hook
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        // We've already panicked so ignore any err
-        let _ = restore_terminal(capture_mouse, hide_cursor, inline, inline_height);
-        hook(panic_info);
-    }));
+    if use_panic_terminal_restore {
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            // We've already panicked so ignore any err
+            let _ = restore_terminal(capture_mouse, hide_cursor, inline, inline_height);
+            hook(panic_info);
+        }));
+    }
 
     let backend = CrosstermBackend::new(stdout);
 
@@ -160,6 +163,7 @@ fn restore_terminal(
 pub struct TuiAppBuilder {
     app_name: String,
     use_backend_stdout: bool,
+    use_panic_terminal_restore: bool,
     use_color_eyre: bool,
     use_tracing: bool,
     use_disk_logs: bool,
@@ -174,6 +178,7 @@ impl Default for TuiAppBuilder {
         Self {
             app_name: String::new(),
             use_backend_stdout: true,
+            use_panic_terminal_restore: true,
             use_color_eyre: true,
             use_tracing: true,
             use_disk_logs: true,
@@ -223,6 +228,11 @@ impl TuiAppBuilder {
         self
     }
 
+    pub fn use_panic_terminal_restore(mut self, use_panic_terminal_restore: bool) -> Self {
+        self.use_panic_terminal_restore = use_panic_terminal_restore;
+        self
+    }
+
     pub fn use_color_eyre(mut self, use_color_eyre: bool) -> Self {
         self.use_color_eyre = use_color_eyre;
         self
@@ -249,6 +259,7 @@ impl TuiAppBuilder {
             logger_guard: None,
             app_name,
             use_backend_stdout: self.use_backend_stdout,
+            use_panic_terminal_restore: self.use_panic_terminal_restore,
             use_color_eyre: self.use_color_eyre,
             use_tracing: self.use_tracing,
             use_disk_logs: self.use_disk_logs,
@@ -264,6 +275,7 @@ pub struct TuiApp {
     logger_guard: Option<LoggerGuard>,
     app_name: String,
     use_backend_stdout: bool, // TODO
+    use_panic_terminal_restore: bool,
     use_color_eyre: bool,
     use_tracing: bool, // TODO
     use_disk_logs: bool,
@@ -278,18 +290,12 @@ impl TuiApp {
     //
     // Terminal Lifecycle
     //
-    // - tui_core.rs:81 always enables mouse capture; expose a toggle so library users can opt out
-    //   entirely.
     // - tui_core.rs:80 and tui_core:98 always uses stdout; allow the user to choose stderr instead
     //   if they want to preserve stdout for command output, e.g. for piping between command line
     //   tools (like fzf does, for example).
-    // - tui_core.rs:109 hides the cursor until shutdown; add a hide_cursor flag for workflows that
-    //   want to change cursor visibility.
     // - tui_core.rs:128-137 hard-codes clearing the inline viewport on restore; provide options
     //   for inline mode restore policies such as “leave inline buffer untouched”, “clear bottom N
     //   lines”, or “always clear everything”
-    // - tui_core.rs:140-150 sets a panic hook that restores the terminal; allow callers to opt out
-    //   of this behavior if they want to manage panics themselves.
     // - The user should be able to specify welcome, goodbye, and error banners that are printed
     //   in those respective situations, either entirely before or entirely after all the remaining
     //   terminal lifecycle management.
@@ -340,6 +346,7 @@ impl TuiApp {
         }
 
         init_terminal(
+            self.use_panic_terminal_restore,
             self.capture_mouse,
             self.hide_cursor,
             self.inline,
