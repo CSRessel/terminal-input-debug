@@ -49,6 +49,57 @@ impl Write for TerminalWriter {
     }
 }
 
+/// Selects which stream the alternate screen backend should target.
+#[derive(Debug, Clone, Copy)]
+pub enum AlternateScreenBackend {
+    Stdout,
+    Stderr,
+}
+
+impl AlternateScreenBackend {
+    fn into_writer(self) -> TerminalWriter {
+        match self {
+            Self::Stdout => TerminalWriter::stdout(),
+            Self::Stderr => TerminalWriter::stderr(),
+        }
+    }
+}
+
+/// Describes how the TUI consumes terminal real estate.
+#[derive(Debug, Clone, Copy)]
+pub enum ViewportMode {
+    Inline { height: u16 },
+    AlternateScreen { backend: AlternateScreenBackend },
+}
+
+impl Default for ViewportMode {
+    fn default() -> Self {
+        Self::AlternateScreen {
+            backend: AlternateScreenBackend::Stdout,
+        }
+    }
+}
+
+impl ViewportMode {
+    fn is_inline(self) -> bool {
+        matches!(self, Self::Inline { .. })
+    }
+
+    fn inline_height(self) -> Option<u16> {
+        match self {
+            Self::Inline { height } => Some(height),
+            Self::AlternateScreen { .. } => None,
+        }
+    }
+
+    fn writer(self) -> TerminalWriter {
+        match self {
+            Self::Inline { .. } => TerminalWriter::stdout(),
+            Self::AlternateScreen { backend } => backend.into_writer(),
+        }
+    }
+}
+
 /// Logger guard
 struct LoggerGuard {
     _guard: tracing_appender::non_blocking::WorkerGuard,
@@ -97,50 +148,46 @@ fn get_log_directory(app_name: &str) -> PathBuf {
 }
 
 fn init_terminal(
-    use_backend_stdout: bool,
+    viewport_mode: ViewportMode,
     use_panic_terminal_restore: bool,
     capture_mouse: bool,
     hide_cursor: bool,
-    inline: bool,
-    inline_height: u16,
 ) -> Result<Terminal<CrosstermBackend<TerminalWriter>>> {
     tracing::debug!("Initializing terminal");
 
     enable_raw_mode().wrap_err("Failed to enable raw mode")?;
 
-    let mut terminal_output = if use_backend_stdout {
-        TerminalWriter::stdout()
-    } else {
-        TerminalWriter::stderr()
-    };
+    let mut terminal_output = viewport_mode.writer();
     if capture_mouse {
         execute!(terminal_output, EnableMouseCapture).wrap_err("Failed to enable mouse capture")?;
     }
 
-    if !inline {
+    if !viewport_mode.is_inline() {
         tracing::debug!("Entering alternate screen mode");
         execute!(terminal_output, EnterAlternateScreen)
             .wrap_err("Failed to enter alternate screen")?;
     } else {
-        tracing::debug!("Using inline mode with height: {}", inline_height);
+        if let Some(height) = viewport_mode.inline_height() {
+            tracing::debug!("Using inline mode with height: {}", height);
+        }
     }
 
     // Set up panic hook
     if use_panic_terminal_restore {
+        let panic_viewport = viewport_mode;
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |panic_info| {
             // We've already panicked so ignore any err
-            let _ = restore_terminal(capture_mouse, hide_cursor, inline, inline_height);
+            let _ = restore_terminal(capture_mouse, hide_cursor, panic_viewport);
             hook(panic_info);
         }));
     }
 
     let backend = CrosstermBackend::new(terminal_output);
 
-    let viewport = if inline {
-        Viewport::Inline(inline_height)
-    } else {
-        Viewport::Fullscreen
+    let viewport = match viewport_mode {
+        ViewportMode::Inline { height } => Viewport::Inline(height),
+        ViewportMode::AlternateScreen { .. } => Viewport::Fullscreen,
     };
 
     let mut terminal = ratatui::Terminal::with_options(backend, TerminalOptions { viewport })
@@ -158,8 +205,7 @@ fn init_terminal(
 fn restore_terminal(
     capture_mouse: bool,
     hide_cursor: bool,
-    inline: bool,
-    inline_height: u16,
+    viewport_mode: ViewportMode,
 ) -> io::Result<()> {
     tracing::debug!("Restoring terminal");
 
@@ -175,15 +221,17 @@ fn restore_terminal(
         }
     }
 
-    if !inline {
+    if !viewport_mode.is_inline() {
         execute!(stdout, LeaveAlternateScreen)?;
     } else {
-        if let Ok((_cols, rows)) = size() {
-            execute!(
-                stdout,
-                cursor::MoveTo(0, rows.saturating_sub(inline_height)),
-                Clear(ClearType::FromCursorDown),
-            )?;
+        if let Some(height) = viewport_mode.inline_height() {
+            if let Ok((_cols, rows)) = size() {
+                execute!(
+                    stdout,
+                    cursor::MoveTo(0, rows.saturating_sub(height)),
+                    Clear(ClearType::FromCursorDown),
+                )?;
+            }
         }
     }
 
@@ -200,28 +248,24 @@ fn restore_terminal(
 #[derive(Debug, Clone)]
 pub struct TuiAppBuilder {
     app_name: String,
-    use_backend_stdout: bool,
     use_panic_terminal_restore: bool,
     use_color_eyre: bool,
     use_disk_logs: bool,
     capture_mouse: bool,
     hide_cursor: bool,
-    inline: bool,
-    inline_height: u16,
+    viewport: ViewportMode,
 }
 
 impl Default for TuiAppBuilder {
     fn default() -> Self {
         Self {
             app_name: String::new(),
-            use_backend_stdout: true,
             use_panic_terminal_restore: true,
             use_color_eyre: true,
             use_disk_logs: true,
             capture_mouse: true,
             hide_cursor: true,
-            inline: false,
-            inline_height: 0,
+            viewport: ViewportMode::default(),
         }
     }
 }
@@ -249,18 +293,20 @@ impl TuiAppBuilder {
         self
     }
 
-    pub fn inline(mut self, inline: bool) -> Self {
-        self.inline = inline;
+    pub fn inline(mut self, height: u16) -> Self {
+        self.viewport = ViewportMode::Inline { height };
         self
     }
 
-    pub fn inline_height(mut self, inline_height: u16) -> Self {
-        self.inline_height = inline_height;
+    pub fn alternate_screen(mut self) -> Self {
+        self.viewport = ViewportMode::AlternateScreen {
+            backend: AlternateScreenBackend::Stdout,
+        };
         self
     }
 
-    pub fn use_backend_stdout(mut self, use_backend_stdout: bool) -> Self {
-        self.use_backend_stdout = use_backend_stdout;
+    pub fn alternate_screen_backend(mut self, backend: AlternateScreenBackend) -> Self {
+        self.viewport = ViewportMode::AlternateScreen { backend };
         self
     }
 
@@ -289,14 +335,12 @@ impl TuiAppBuilder {
         TuiApp {
             logger_guard: None,
             app_name,
-            use_backend_stdout: self.use_backend_stdout,
             use_panic_terminal_restore: self.use_panic_terminal_restore,
             use_color_eyre: self.use_color_eyre,
             use_disk_logs: self.use_disk_logs,
             capture_mouse: self.capture_mouse,
             hide_cursor: self.hide_cursor,
-            inline: self.inline,
-            inline_height: self.inline_height,
+            viewport: self.viewport,
         }
     }
 }
@@ -304,14 +348,12 @@ impl TuiAppBuilder {
 pub struct TuiApp {
     logger_guard: Option<LoggerGuard>,
     app_name: String,
-    use_backend_stdout: bool, // TODO
     use_panic_terminal_restore: bool,
     use_color_eyre: bool,
     use_disk_logs: bool,
     capture_mouse: bool,
     hide_cursor: bool,
-    inline: bool,
-    inline_height: u16,
+    viewport: ViewportMode,
 }
 
 impl TuiApp {
@@ -319,9 +361,8 @@ impl TuiApp {
     //
     // Terminal Lifecycle
     //
-    // - tui_core.rs:80 and tui_core:98 always uses stdout; allow the user to choose stderr instead
-    //   if they want to preserve stdout for command output, e.g. for piping between command line
-    //   tools (like fzf does, for example).
+    // - Inline mode currently forces stdout. Re-evaluate whether to support directing inline output
+    //   elsewhere without breaking existing guarantees.
     // - tui_core.rs:128-137 hard-codes clearing the inline viewport on restore; provide options
     //   for inline mode restore policies such as “leave inline buffer untouched”, “clear bottom N
     //   lines”, or “always clear everything”
@@ -356,22 +397,15 @@ impl TuiApp {
         }
 
         init_terminal(
-            self.use_backend_stdout,
+            self.viewport,
             self.use_panic_terminal_restore,
             self.capture_mouse,
             self.hide_cursor,
-            self.inline,
-            self.inline_height,
         )
     }
 
     /// Restore the terminal to its pre-initialization state.
     pub fn restore(&self) -> io::Result<()> {
-        restore_terminal(
-            self.capture_mouse,
-            self.hide_cursor,
-            self.inline,
-            self.inline_height,
-        )
+        restore_terminal(self.capture_mouse, self.hide_cursor, self.viewport)
     }
 }

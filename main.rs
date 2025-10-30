@@ -24,7 +24,7 @@ use std::io::{self, ErrorKind, Read};
 use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
 use std::time::Instant;
-use tui_core::TuiApp;
+use tui_core::{AlternateScreenBackend, TuiApp};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -76,9 +76,7 @@ fn run(args: Args) -> Result<()> {
 
     let height = args.max_inputs as u16 + 2; // +2 for header and for event info
     let mut tui_app = TuiApp::builder("controlsequencedebugger")
-        .inline(false)
-        .inline_height(height)
-        .use_backend_stdout(false)
+        .alternate_screen_backend(AlternateScreenBackend::Stderr)
         .build();
     let mut terminal = tui_app.init()?;
 
