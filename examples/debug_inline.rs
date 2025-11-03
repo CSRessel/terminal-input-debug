@@ -1,4 +1,4 @@
-mod tui_core;
+use _tuicore::TuiApp;
 
 use clap::Parser;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -24,7 +24,6 @@ use std::io::{self, ErrorKind, Read};
 use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
 use std::time::Instant;
-use tui_core::TuiApp;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

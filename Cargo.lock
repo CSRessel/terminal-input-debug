@@ -874,24 +874,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "terminal-events"
-version = "0.1.0"
-dependencies = [
- "clap",
- "color-eyre",
- "crossterm",
- "dirs",
- "eyre",
- "libc",
- "nix",
- "owo-colors",
- "ratatui",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1052,6 +1034,24 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tuicore"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "crossterm",
+ "dirs",
+ "eyre",
+ "libc",
+ "nix",
+ "owo-colors",
+ "ratatui",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]

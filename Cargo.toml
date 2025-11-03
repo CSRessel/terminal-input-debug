@@ -1,16 +1,10 @@
 [package]
-name = "terminal-events"
+name = "tuicore"
 version = "0.1.0"
 edition = "2021"
-default-run = "main"
 
-[[bin]]
-name = "debug_rust_only"
-path = "debug_rust_only.rs"
-
-[[bin]]
-name = "main"
-path = "main.rs"
+[lib]
+name = "_tuicore"
 
 [dependencies]
 # TUI
