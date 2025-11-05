@@ -874,6 +874,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminal-colorsaurus"
+version = "0.0.1"
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1049,6 +1053,7 @@ dependencies = [
  "nix",
  "owo-colors",
  "ratatui",
+ "terminal-colorsaurus",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

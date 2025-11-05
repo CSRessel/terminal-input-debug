@@ -11,11 +11,13 @@ use libc;
 use nix::errno::Errno;
 #[cfg(unix)]
 use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+#[cfg(unix)]
 use ratatui::{
     layout::Constraint,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Padding, Row, Table},
+    widgets::{Block, BorderType, Borders, Cell, Row, Table},
+    prelude::Widget,
 };
 #[cfg(unix)]
 use std::collections::VecDeque;
@@ -24,6 +26,8 @@ use std::io::{self, ErrorKind, Read};
 use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
 use std::time::Instant;
+#[cfg(unix)]
+use terminal_colorsaurus::{detect_terminal_color_preference, Preference};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -35,6 +39,10 @@ struct Args {
     /// Maximum number of inputs before exiting
     #[arg(short, long, default_value_t = 10)]
     max_inputs: usize,
+
+    /// Render rounded borders around the event table
+    #[arg(long = "table-borders", default_value_t = true)]
+    table_borders: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +59,155 @@ struct GuessInfo {
     description: String,
     _code: String,
     _kind: String,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone)]
+struct AppPalette {
+    block_background: Color,
+    table_background: Color,
+    border: Color,
+    title_primary: Color,
+    title_accent: Color,
+    title_muted: Color,
+    status_primary: Color,
+    status_secondary: Color,
+    divider: Color,
+    header_fg: Color,
+    header_bg: Color,
+    hex_fg: Color,
+    escape_fg: Color,
+    key_fg: Color,
+    modifiers_fg: Color,
+    info_fg: Color,
+    row_even_bg: Color,
+    row_odd_bg: Color,
+}
+
+#[cfg(unix)]
+impl AppPalette {
+    fn detect() -> Self {
+        match detect_terminal_color_preference() {
+            Preference::Light => Self {
+                block_background: Color::Rgb(247, 247, 250),
+                table_background: Color::Rgb(247, 247, 250),
+                border: Color::Rgb(190, 198, 216),
+                title_primary: Color::Rgb(55, 60, 92),
+                title_accent: Color::Rgb(103, 140, 220),
+                title_muted: Color::Rgb(120, 128, 156),
+                status_primary: Color::Rgb(54, 112, 186),
+                status_secondary: Color::Rgb(118, 132, 156),
+                divider: Color::Rgb(188, 194, 208),
+                header_fg: Color::Rgb(58, 62, 94),
+                header_bg: Color::Rgb(228, 231, 241),
+                hex_fg: Color::Rgb(163, 103, 24),
+                escape_fg: Color::Rgb(71, 134, 182),
+                key_fg: Color::Rgb(63, 136, 74),
+                modifiers_fg: Color::Rgb(143, 92, 170),
+                info_fg: Color::Rgb(60, 64, 88),
+                row_even_bg: Color::Rgb(235, 238, 246),
+                row_odd_bg: Color::Rgb(244, 244, 250),
+            },
+            Preference::Dark | Preference::Unknown => Self {
+                block_background: Color::Rgb(22, 24, 32),
+                table_background: Color::Rgb(22, 24, 32),
+                border: Color::Rgb(82, 86, 105),
+                title_primary: Color::Rgb(233, 226, 248),
+                title_accent: Color::Rgb(137, 220, 235),
+                title_muted: Color::Rgb(150, 155, 170),
+                status_primary: Color::Rgb(244, 208, 149),
+                status_secondary: Color::Rgb(158, 167, 188),
+                divider: Color::Rgb(90, 96, 120),
+                header_fg: Color::Rgb(244, 235, 208),
+                header_bg: Color::Rgb(40, 42, 54),
+                hex_fg: Color::Rgb(247, 208, 96),
+                escape_fg: Color::Rgb(124, 209, 226),
+                key_fg: Color::Rgb(143, 220, 155),
+                modifiers_fg: Color::Rgb(218, 163, 241),
+                info_fg: Color::Rgb(220, 222, 233),
+                row_even_bg: Color::Rgb(28, 30, 40),
+                row_odd_bg: Color::Rgb(24, 26, 35),
+            },
+        }
+    }
+
+    fn row_background(&self, index: usize) -> Color {
+        if index % 2 == 0 {
+            self.row_even_bg
+        } else {
+            self.row_odd_bg
+        }
+    }
+}
+
+#[cfg(unix)]
+fn build_title_line(
+    label: &str,
+    input_count: usize,
+    max_inputs: usize,
+    elapsed: Duration,
+    timeout: u64,
+    palette: &AppPalette,
+) -> Line<'static> {
+    let elapsed_text = format!("{:.1}s", elapsed.as_secs_f32());
+    let timeout_text = format!("{}s", timeout);
+
+    Line::from(vec![
+        Span::styled("◈ ", Style::default().fg(palette.title_accent)),
+        Span::styled(
+            label.to_string(),
+            Style::default()
+                .fg(palette.title_primary)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled("│", Style::default().fg(palette.divider)),
+        Span::raw("  "),
+        Span::styled("Inputs", Style::default().fg(palette.title_muted)),
+        Span::raw(" "),
+        Span::styled(
+            format!("{:>2}", input_count),
+            Style::default()
+                .fg(palette.status_primary)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" / {}", max_inputs),
+            Style::default().fg(palette.status_secondary),
+        ),
+        Span::raw("   "),
+        Span::styled("⏱", Style::default().fg(palette.title_muted)),
+        Span::raw(" "),
+        Span::styled(
+            elapsed_text,
+            Style::default()
+                .fg(palette.status_primary)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" / {}", timeout_text),
+            Style::default().fg(palette.status_secondary),
+        ),
+    ])
+}
+
+
+
+#[cfg(unix)]
+fn build_header_row(palette: &AppPalette) -> Row<'static> {
+    let header_style = Style::default()
+        .fg(palette.header_fg)
+        .bg(palette.header_bg)
+        .add_modifier(Modifier::BOLD);
+
+    Row::new(vec![
+        Cell::from("Hex"),
+        Cell::from("Esc"),
+        Cell::from("Key"),
+        Cell::from("Mods"),
+        Cell::from("Info"),
+    ])
+    .style(header_style)
 }
 
 fn main() -> eyre::Result<()> {
@@ -73,7 +230,8 @@ fn run(args: Args) -> Result<()> {
     const DRAW_TIMEOUT: Duration = Duration::from_millis(100);
     const FLUSH_TIMEOUT: Duration = Duration::from_millis(35);
 
-    let height = args.max_inputs as u16 + 2; // +2 for header and for event info
+    let border_offset: u16 = if args.table_borders { 2 } else { 0 };
+    let height = args.max_inputs as u16 + 2 + border_offset; // extra space for header and borders
     let mut tui_app = TuiApp::builder("controlsequencedebugger")
         .inline(height)
         .build();
@@ -84,6 +242,7 @@ fn run(args: Args) -> Result<()> {
 
     let timeout_duration = Duration::from_secs(args.timeout);
     let start_time = Instant::now();
+    let palette = AppPalette::detect();
 
     let mut reader = RawInputReader::new(FLUSH_TIMEOUT)?;
 
@@ -109,40 +268,32 @@ fn run(args: Args) -> Result<()> {
 
         terminal.draw(|f| {
             let size = f.area();
-            let status_text = format!(
-                "Inputs: {}/{} | Time: {:.1}s / {}s",
+            let title_line = build_title_line(
+                "Events",
                 input_count,
                 args.max_inputs,
-                start_time.elapsed().as_secs_f32(),
-                args.timeout
+                start_time.elapsed(),
+                args.timeout,
+                &palette,
             );
-            let title_line = Line::from(vec![
-                Span::from("Events ").style(Style::default().fg(Color::Yellow)),
-                Span::from("("),
-                Span::from(status_text).style(Style::default().fg(Color::Cyan)),
-                Span::from(")"),
-            ]);
 
             let block = Block::default()
                 .title(title_line)
-                .borders(Borders::NONE)
-                .padding(Padding::uniform(0));
+                .style(Style::default().bg(palette.block_background));
+
+            let block = if args.table_borders {
+                block
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(palette.border))
+            } else {
+                block
+            };
 
             let inner_area = block.inner(size);
             f.render_widget(block, size);
 
-            let header = Row::new(vec![
-                Cell::from("Hex"),
-                Cell::from("Esc"),
-                Cell::from("Key"),
-                Cell::from("Mods"),
-                Cell::from("Info"),
-            ])
-            .style(
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            );
+            let header = build_header_row(&palette);
 
             let widths = [
                 Constraint::Length(18),
@@ -156,58 +307,50 @@ fn run(args: Args) -> Result<()> {
 
             let events_rows: Vec<Row> = events
                 .iter()
-                .take(height as usize - 2)
-                .map(|info| format_event_info(info))
+                .take(args.max_inputs)
+                .enumerate()
+                .map(|(idx, info)| format_event_info(info, &palette, idx))
                 .collect();
 
             let events_table = Table::new(events_rows, widths)
                 .header(header)
-                .column_spacing(1);
+                .column_spacing(1)
+                .style(Style::default().bg(palette.table_background));
 
-            f.render_widget(events_table, inner_area);
+            Widget::render(&events_table, inner_area, f.buffer_mut());
         })?;
     }
 
     tui_app.restore()?;
 
     terminal.insert_before(height, |f| {
-        use ratatui::widgets::Widget;
-
         let size = f.area();
-        let status_text = format!(
-            "Final Inputs: {}/{} | Time: {:.1}s / {}s",
+        let title_line = build_title_line(
+            "Final Events",
             input_count,
             args.max_inputs,
-            start_time.elapsed().as_secs_f32(),
-            args.timeout
+            start_time.elapsed(),
+            args.timeout,
+            &palette,
         );
-        let title_line = Line::from(vec![
-            Span::from("Final Events ").style(Style::default().fg(Color::Yellow)),
-            Span::from("("),
-            Span::from(status_text).style(Style::default().fg(Color::Cyan)),
-            Span::from(")"),
-        ]);
 
         let block = Block::default()
             .title(title_line)
-            .borders(Borders::NONE)
-            .padding(Padding::uniform(0));
+            .style(Style::default().bg(palette.block_background));
 
-        let inner_area = block.inner(size.clone());
-        block.render(size.clone(), f);
+        let block = if args.table_borders {
+            block
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(palette.border))
+        } else {
+            block
+        };
 
-        let header = Row::new(vec![
-            Cell::from("Hex"),
-            Cell::from("Esc"),
-            Cell::from("Key"),
-            Cell::from("Mods"),
-            Cell::from("Info"),
-        ])
-        .style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        );
+        let inner_area = block.inner(*size);
+        block.render(*size, f);
+
+        let header = build_header_row(&palette);
 
         let widths = [
             Constraint::Length(18),
@@ -217,13 +360,18 @@ fn run(args: Args) -> Result<()> {
             Constraint::Min(10),
         ];
 
-        let events_rows: Vec<Row> = events.iter().map(|info| format_event_info(info)).collect();
+        let events_rows: Vec<Row> = events
+            .iter()
+            .enumerate()
+            .map(|(idx, info)| format_event_info(info, &palette, idx))
+            .collect();
 
         let events_table = Table::new(events_rows, widths)
             .header(header)
-            .column_spacing(1);
+            .column_spacing(1)
+            .style(Style::default().bg(palette.table_background));
 
-        events_table.render(inner_area, f);
+        Widget::render(&events_table, inner_area, f);
     })?;
 
     Ok(())
@@ -246,28 +394,41 @@ fn process_event_bytes(bytes: Vec<u8>, events: &mut Vec<InputEventInfo>, count: 
     *count += 1;
 }
 
-fn format_event_info(info: &InputEventInfo) -> Row<'static> {
+#[cfg(unix)]
+fn format_event_info(
+    info: &InputEventInfo,
+    palette: &AppPalette,
+    row_index: usize,
+) -> Row<'static> {
     let description = if info.guess.description.is_empty() {
         String::new()
     } else {
         info.guess.description.clone()
     };
 
+    let row_bg = palette.row_background(row_index);
+    let row_style = Style::default().bg(row_bg);
+
     Row::new(vec![
         Cell::from(info.hex_string.clone()).style(
             Style::default()
-                .fg(Color::Yellow)
+                .fg(palette.hex_fg)
+                .bg(row_bg)
                 .add_modifier(Modifier::BOLD),
         ),
-        Cell::from(info.escaped_string.clone()).style(Style::default().fg(Color::Cyan)),
+        Cell::from(info.escaped_string.clone())
+            .style(Style::default().fg(palette.escape_fg).bg(row_bg)),
         Cell::from(info.guess.key.clone()).style(
             Style::default()
-                .fg(Color::Green)
+                .fg(palette.key_fg)
+                .bg(row_bg)
                 .add_modifier(Modifier::BOLD),
         ),
-        Cell::from(info.guess.modifiers.clone()).style(Style::default().fg(Color::Magenta)),
-        Cell::from(description).style(Style::default().fg(Color::White)),
+        Cell::from(info.guess.modifiers.clone())
+            .style(Style::default().fg(palette.modifiers_fg).bg(row_bg)),
+        Cell::from(description).style(Style::default().fg(palette.info_fg).bg(row_bg)),
     ])
+    .style(row_style)
 }
 
 impl InputEventInfo {
