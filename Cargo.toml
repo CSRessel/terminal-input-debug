@@ -14,10 +14,10 @@ owo-colors = "4.0"
 eyre = "0.6"
 color-eyre = "0.6"
 dirs = "6.0.0"
-terminal-colorsaurus = { path = "crates/terminal-colorsaurus" }
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry"] }
 clap = { version = "4.5.49", features = [ "derive" ] }
 libc = "0.2"
 nix = { version = "0.29", default-features = false, features = ["poll", "term"] }
+terminal-colorsaurus = "1.0.1"

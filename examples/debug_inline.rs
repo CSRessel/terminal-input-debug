@@ -27,7 +27,7 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
 use std::time::Instant;
 #[cfg(unix)]
-use terminal_colorsaurus::{detect_terminal_color_preference, Preference};
+use terminal_colorsaurus::{theme_mode, ThemeMode, QueryOptions};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -87,8 +87,8 @@ struct AppPalette {
 #[cfg(unix)]
 impl AppPalette {
     fn detect() -> Self {
-        match detect_terminal_color_preference() {
-            Preference::Light => Self {
+        match theme_mode(QueryOptions::default()) {
+            Ok(ThemeMode::Light) => Self {
                 block_background: Color::Rgb(247, 247, 250),
                 table_background: Color::Rgb(247, 247, 250),
                 border: Color::Rgb(190, 198, 216),
@@ -108,7 +108,7 @@ impl AppPalette {
                 row_even_bg: Color::Rgb(235, 238, 246),
                 row_odd_bg: Color::Rgb(244, 244, 250),
             },
-            Preference::Dark | Preference::Unknown => Self {
+            Ok(ThemeMode::Dark) | Err(_) => Self {
                 block_background: Color::Rgb(22, 24, 32),
                 table_background: Color::Rgb(22, 24, 32),
                 border: Color::Rgb(82, 86, 105),
